@@ -5,6 +5,7 @@ Created on Fri Aug 28 08:29:29 2015
 @author: paulp
 """
 from math import log10 as log
+from math import pi
 from copy import deepcopy
 import unittest
 import cProfile
@@ -61,12 +62,12 @@ class PhysQuant(object):
     better_unit = {"ohm": "Ω", "Ohm": "Ω", "ohms": "Ω", "Ohms": "Ω",
                    "Amp": "A", "amp": "A", "Amps": "A", "amps": "A",
                    "mole": "mol", "moles": "mol", "liter": "l",
-                   "Liter": "l", "liters": "l", "L": "l", "s": "sec",
-                   "gram": "g"}
+                   "Liter": "l", "liters": "l", "L": "l", "second": "sec",
+                   "gram": "g", "q": "coul", "Q": "coul"}
     # Dicitonary of potential unit prefixes and their values
     prefix = {"m": 1e-3, "u": 1e-6, "n": 1e-9, "p": 1e-12, "f": 1e-15,
               "K": 1.0e3, "M": 1.0e6, "G": 1.0e9, "μ": 1e-6,
-              "c": 1e-2, "k": 1e3}
+              "c": 1e-2, "k": 1e3, "a": 1e-18}
 
     @classmethod
     def clean_unit(cls, units_dict):
@@ -295,7 +296,10 @@ class PhysQuant(object):
             units = value[1]
             unit_power = value[2]
             if units:
-                for index, unit in enumerate(units):            
+                for index, unit in enumerate(units):
+                    if unit in PhysQuant.better_unit.values():
+                        # if we have a preferred unit, leave it alone
+                        continue
                     """ If a unit is present and it is longer than 1, so it might have 
                     a prefix, then the 1st character is scanned against the dict
                     of unit prefixes.  If a prefix is found it is used to process the
@@ -369,6 +373,17 @@ class PhysQuant(object):
     def reduce(self):
         """ reduct cancels units in the numerator and denominator"""
         temp_denom_unit_list = list(self._unit_dict["denom"][1])
+        # First check if ohms or S in denom unit list and if so put reciprocal
+        # unit in the num unit list
+        for unit in self._unit_dict["denom"][1]:
+            if unit in ("Ω", "S"):
+                temp_denom_unit_list.remove(unit)
+                if unit == "Ω":
+                    self._unit_dict["num"][1].append("S")
+                else:
+                    self._unit_dict["num"][1].append("Ω")
+        # Now cancel any units present in both the num and denom unit lists
+        self._unit_dict["denom"][1] = temp_denom_unit_list
         temp_num_unit_list = list(self._unit_dict["num"][1])
         for unit in self._unit_dict["denom"][1]:
             cnt = temp_num_unit_list.count(unit)
@@ -379,7 +394,7 @@ class PhysQuant(object):
                      self._unit_dict["num"][2]]
         denominator = [self._unit_dict["denom"][0], temp_denom_unit_list,
                        self._unit_dict["denom"][2]]
-        self._unit_dict["num"]= numerator
+        self._unit_dict["num"] = numerator
         self._unit_dict["denom"] = denominator
 
     @property
@@ -405,19 +420,20 @@ class PhysQuant(object):
         
     @property
     def SI(self):
-        """ Returns the internal SI type unit stored in the unit_dict.
+        """ Returns the internal SI type unit stored in the unit_dict along
+        with its scalar value.
         SI will return grams if the hidden class level flag _SI_grams
         is set to True, otherwise returns kg.
         """
         output_unit = ".".join(self._unit_dict["num"][1])
         scale_unit = ".".join(self._unit_dict["denom"][1])
+        local_scalar = self._unit_dict["num"][0]
         if self._unit_dict["denom"][2] == -1 and self._unit_dict["denom"][1]:
             output_unit = output_unit + "/ " + scale_unit
-        elif self._unit_dict["denom"][1]:
-            output_unit = output_unit + " * " + scale_unit
         if not self._SI_grams and self._unit_dict["num"][1] == 'g':
             output_unit = "kg"
-        return output_unit
+            local_scalar = local_scalar / 1000.0
+        return local_scalar, output_unit
 
     @property
     def unit_dict(self):
@@ -434,14 +450,13 @@ class PhysQuant(object):
         else:
             raise ValueError("Scalar still has attached Units")
         
-    def __call__(self):
-        """ Defines that if PhysQuant object is called as a function then it 
-        will return the value in the scalar and the units as SI type units.
-        Note that SI will return grams if the hidden class level flag _SI_grams
-        is set to True
-        """
+    def __call__(self, var):
+        #def __call__(self):
+        """Call can make a new PhysQuant object the same as using pq"""
         if PhysQuant.debug: print("Enter __call__")    
-        return self.scalar, self.SI
+        #return self.scalar, self.SI
+        return PhysQuant(var)
+
 
     def __add__(self, pq_obj):
         """ redefines addition for PhysQuant objects.  Method adds the scalar
@@ -641,7 +656,7 @@ class PhysQuant(object):
         """ Returns an inverted version of the unit_dict in this instance for
         use in performing division by multiplying with an inverted unit_dict.
         Does not change the unit_dict in this instance.  For ohms and siemens,
-        converts the unit to it reciprocal unit
+        converts the unit to its reciprocal unit
         """
         if PhysQuant.debug: print("Enter invert")    
         inverted = False
@@ -924,10 +939,109 @@ class pq(PhysQuant):
         return PhysQuant(var)
 
 
-        
-        
+class rnd_cell(PhysQuant):
+    """ Creates a round cell object when given a diameter.  Provides easy
+    access to volume, surface area and membrane capacitance for a standard
+    cell
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
-            
+    def __call__(self):
+        """ call takes the diam and converts it to a pq if it isn't already. 
+        diam can be an valid term that can be interpreted as a pq, like
+        srings, floats,integers, and other PhysQuant items.  Returns a pq
+        object for the Surface Area and the Volume"""
+        SA = pi * pq(self.__repr__()) ** 2
+        Vol = (pi / 6.0)* (pq(self.__repr__()))**3
+        return SA, Vol
+    
+    @property
+    def vol(self):
+        return (pi / 6.0)* (pq(self.__repr__()))**3
+    
+    @property
+    def sa(self):
+        return pi * pq(self.__repr__()) ** 2
+
+    @property
+    def cm(self):
+        return self.sa * pq("1 uF/cm2")
+        
+class segment(PhysQuant):
+    """ Creates a cylindrical cell object when given a diameter and a length
+    as pq objects. Provides easy  access to volume, surface area, membrane 
+    capacitance and internal resistance.  cm can be flagged for mylenation
+    """
+    def __init__(self, myelin=False, **kwargs):
+        self._l = kwargs["l"]
+        self._d = kwargs["d"]
+        self._myelin = myelin
+        self.ra_cm = pq("100 ohm.cm")
+
+    def __call__(self):
+        """ call takes the diam and converts it to a pq if it isn't already. 
+        diam can be an valid term that can be interpreted as a pq, like
+        srings, floats,integers, and other PhysQuant items.  Returns a pq
+        object for the Surface Area and the Volume"""
+        SA = ((pi) * pq(self._d)) * self._l
+        Vol = ((pi / 4.0)* (pq(self._d))**2) * self._l
+        return SA, Vol
+
+    @property
+    def l(self):
+        return self._l
+    
+    @property
+    def d(self):
+        return self._d
+
+    @property
+    def myelin(self):
+        return self._myelin
+
+    @myelin.setter
+    def myelin(self, myl):
+        if myl:
+            self._myelin = True
+        else:
+            self._myelin = False    
+        
+    @property
+    def vol(self):
+        return ((pi / 4.0)* (pq(self._d))**2) * pq(self._l)
+    
+    @property
+    def sa(self):
+        return ((pi) * pq(self._d)) * pq(self._l)
+
+    @property
+    def cm(self):
+        if self._myelin:
+            cm_s = "0.0167 uF/cm2"
+        else:
+            cm_s = "1 uF/cm2"
+        return self.sa * pq(cm_s)
+
+    @property
+    def ra(self):
+        inv_vol = self.vol.inverted()
+        return inv_vol * self.ra_cm * self.sa
+
+# This code defines pq object constants that can be used after PhysQuant
+# is imported
+
+N= pq("6.0224e23 / mol")
+R = pq("8.314 J.mol/K")
+VtoBase = pq("1.0 J/V.coul")
+StoBase = pq("1.0 coul.coul/J.sec.S")
+RtoBase = StoBase.inverted()
+AtoBase = pq("1.0 coul/sec.A")
+F = pq("96500 coul/mol")
+tau_conv = pq("1.0 sec/ohm.F")
+to_sec = pq("1.0 sec/s")
+
+
 if __name__ == "__main__":
     """MyQuant = PhysQuant("100 mS/50 cm2")
     print(MyQuant.prefixed)
@@ -968,9 +1082,10 @@ if __name__ == "__main__":
 
     a = myu3.remove_prefix("50", "pA")
     print(a)
-    b = (myu6.scalar, myu6.SI)
+    b, _ = (myu6.SI)
     print(b)
-    b = myu3.add_prefix(myu6.scalar, myu6.SI)
+    _, SIunit = myu6.SI
+    b = myu3.add_prefix(myu6.scalar, SIunit)
     print(b)
     c=myu3.parse_unit_string("sec-1.cm3.mV")
     print(c)
