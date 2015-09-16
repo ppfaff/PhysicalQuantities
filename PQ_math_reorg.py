@@ -351,7 +351,7 @@ class PhysQuant(object):
         prefixed unit.
         """
         use_centi = False
-        self.reduce
+        self.reduce()
         self._unit_dict = self.normalize_denom(self.unit_dict)
         unit_scalar = self.unit_dict["num"][0]
         if "m" in self.unit_dict["num"][1]:
@@ -369,34 +369,6 @@ class PhysQuant(object):
         if PhysQuant.debug: print("unit Output", output_value, output_unit)
         return output_value, output_unit
         
-    @property
-    def reduce(self):
-        """ reduct cancels units in the numerator and denominator"""
-        temp_denom_unit_list = list(self._unit_dict["denom"][1])
-        # First check if ohms or S in denom unit list and if so put reciprocal
-        # unit in the num unit list
-        for unit in self._unit_dict["denom"][1]:
-            if unit in ("Ω", "S"):
-                temp_denom_unit_list.remove(unit)
-                if unit == "Ω":
-                    self._unit_dict["num"][1].append("S")
-                else:
-                    self._unit_dict["num"][1].append("Ω")
-        # Now cancel any units present in both the num and denom unit lists
-        self._unit_dict["denom"][1] = temp_denom_unit_list
-        temp_num_unit_list = list(self._unit_dict["num"][1])
-        for unit in self._unit_dict["denom"][1]:
-            cnt = temp_num_unit_list.count(unit)
-            if cnt >= 1:
-                temp_denom_unit_list.remove(unit)
-                temp_num_unit_list.remove(unit)
-        numerator = [self._unit_dict["num"][0], temp_num_unit_list,
-                     self._unit_dict["num"][2]]
-        denominator = [self._unit_dict["denom"][0], temp_denom_unit_list,
-                       self._unit_dict["denom"][2]]
-        self._unit_dict["num"] = numerator
-        self._unit_dict["denom"] = denominator
-
     @property
     def scalar(self):
         """ Returns the internal scalar stored in the unit_dict.  However if
@@ -429,7 +401,7 @@ class PhysQuant(object):
         scale_unit = ".".join(self._unit_dict["denom"][1])
         local_scalar = self._unit_dict["num"][0]
         if self._unit_dict["denom"][2] == -1 and self._unit_dict["denom"][1]:
-            output_unit = output_unit + "/ " + scale_unit
+            output_unit = output_unit + "/" + scale_unit
         if not self._SI_grams and self._unit_dict["num"][1] == 'g':
             output_unit = "kg"
             local_scalar = local_scalar / 1000.0
@@ -468,9 +440,9 @@ class PhysQuant(object):
             print("add", self.unit_dict, pq_obj.unit_dict)
         try:
             self.melt
-            self.reduce
+            self.reduce()
             pq_obj.melt
-            pq_obj.reduce
+            pq_obj.reduce()
             temp_unit_dict = self.unit_dict
             my_temp_denom_unit_list = list(self._unit_dict["denom"][1])
             pq_obj_temp_denom_unit_list = list(pq_obj._unit_dict["denom"][1])
@@ -500,7 +472,7 @@ class PhysQuant(object):
                                                    multiplier.unit_dict)
         pq_prod = pq(**the_dict)
         pq_prod.melt
-        pq_prod.reduce
+        pq_prod.reduce()
         return pq_prod
 
     def __pow__(self, exponent):
@@ -521,7 +493,7 @@ class PhysQuant(object):
             temp_dict["num"][1] = num_unit_list * exponent
             pq_prod = pq(**temp_dict)
             pq_prod.melt
-            pq_prod.reduce
+            pq_prod.reduce()
             return pq_prod
         else:
             raise ValueError("Exponent must be a float or int")
@@ -542,7 +514,7 @@ class PhysQuant(object):
                                                    multiplier.unit_dict)
         pq_prod = pq(**the_dict)
         pq_prod.melt
-        pq_prod.reduce
+        pq_prod.reduce()
         return pq_prod
        
     def __repr__(self):
@@ -662,11 +634,12 @@ class PhysQuant(object):
         inverted = False
         # Creates a deepcopy to make sure we don't mess with self.unit_dict
         temp_dict = deepcopy(self.unit_dict)
-        for key, value in temp_dict.items():
+        """for key, value in temp_dict.items():
+            for unit in value[1]:
             if value[1] == "Ω":
                 factor = 1.0 / value[0]
                 unit_value = "S"
-                inv_tuple = (factor, unit_value, value[2])
+                inv_list = [factor, unit_value, value[2]]
                 temp_dict[key] = inv_tuple
                 inverted = True
                 break
@@ -677,17 +650,19 @@ class PhysQuant(object):
                 temp_dict[key] = inv_tuple
                 inverted = True
                 break
-        scale_unit = temp_dict["denom"][1]
+        """
+        scale_unit_list = temp_dict["denom"][1]
         scale_power = temp_dict["denom"][2]
-        unit_list = temp_dict["num"]
+        num_to_denom = temp_dict["num"]
         #print("scales", scale_unit, scale_power)
-        invert_power = -unit_list[2]
-        new_list = (unit_list[0], unit_list[1], invert_power)
+        invert_power = - num_to_denom[2]
+        new_denom = [num_to_denom[0], num_to_denom[1], invert_power]
         #print("new_tuple", new_list)
-        temp_dict["denom"]= new_list
-        temp_dict["num"] = (1, scale_unit, -scale_power)
+        temp_dict["denom"]= new_denom
+        temp_dict["num"] = [1, scale_unit_list, -scale_power]
         inv_pq = pq(**temp_dict)
-        inv_pq._unit_dict = inv_pq.normalize_denom(temp_dict)
+        inv_pq.reduce()
+        inv_pq._unit_dict = inv_pq.normalize_denom(inv_pq._unit_dict)
         
         return inv_pq
 
@@ -707,6 +682,36 @@ class PhysQuant(object):
         temp_melt_unit_dict["num"] = temp_num_list
         temp_melt_unit_dict["denom"] = temp_denom_list
         self._unit_dict = temp_melt_unit_dict
+
+    def reduce(self):
+        """ reduct cancels units in the numerator and denominator"""
+        temp_denom_unit_list = list(self._unit_dict["denom"][1])
+        # First check if ohms or S in denom unit list and if so put reciprocal
+        # unit in the num unit list
+        for unit in self._unit_dict["denom"][1]:
+            print("From Denom checking", unit)
+            if unit in ("Ω", "S"):
+                print("Found ohm or S in denom")
+                temp_denom_unit_list.remove(unit)
+                if unit == "Ω":
+                    self._unit_dict["num"][1].append("S")
+                else:
+                    self._unit_dict["num"][1].append("Ω")
+        # Now cancel any units present in both the num and denom unit lists
+        self._unit_dict["denom"][1] = temp_denom_unit_list
+        print("unit dict_denom units", temp_denom_unit_list)
+        temp_num_unit_list = list(self._unit_dict["num"][1])
+        for unit in self._unit_dict["denom"][1]:
+            cnt = temp_num_unit_list.count(unit)
+            if cnt >= 1:
+                temp_denom_unit_list.remove(unit)
+                temp_num_unit_list.remove(unit)
+        numerator = [self._unit_dict["num"][0], temp_num_unit_list,
+                     self._unit_dict["num"][2]]
+        denominator = [self._unit_dict["denom"][0], temp_denom_unit_list,
+                       self._unit_dict["denom"][2]]
+        self._unit_dict["num"] = numerator
+        self._unit_dict["denom"] = denominator
 
     @staticmethod
     def add_prefix(in_scalar, unit_str):
