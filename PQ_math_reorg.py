@@ -926,19 +926,6 @@ class PhysQuant(object):
             raise ValueError("Entered invalid unit_dict list {0}".format( in_list))
         return temp_list
 
-class pq(PhysQuant):
-    """ pq creates PhysQuant items on the fly. It can handle strings, floats,
-    integers, and other PhysQuant items.  Primarily needed for construction
-    of temporary PhysQuant items for performing PhysQuant math operations but
-    is useful for any PhysQuant initialization
-    Examples:
-        pq1 = pq(154.3)
-        pq2 = pq("1 uF/cm2")
-    """
-    def __call__(self, var):
-        return PhysQuant(var)
-
-
 class rnd_cell(PhysQuant):
     """ Creates a round cell object when given a diameter.  Provides easy
     access to volume, surface area and membrane capacitance for a standard
@@ -1027,6 +1014,9 @@ class segment(PhysQuant):
     def ra(self):
         inv_vol = self.vol.inverted()
         return inv_vol * self.ra_cm * self.sa
+
+def pq(*args, **kwargs):
+    return PhysQuant(*args, **kwargs)
 
 # This code defines pq object constants that can be used after PhysQuant
 # is imported
