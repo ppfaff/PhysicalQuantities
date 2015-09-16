@@ -634,23 +634,6 @@ class PhysQuant(object):
         inverted = False
         # Creates a deepcopy to make sure we don't mess with self.unit_dict
         temp_dict = deepcopy(self.unit_dict)
-        """for key, value in temp_dict.items():
-            for unit in value[1]:
-            if value[1] == "Ω":
-                factor = 1.0 / value[0]
-                unit_value = "S"
-                inv_list = [factor, unit_value, value[2]]
-                temp_dict[key] = inv_tuple
-                inverted = True
-                break
-            elif value[1] == "S":
-                factor = 1.0 / value[0]
-                unit_value = "Ω"
-                inv_tuple = (factor, unit_value, value[2])
-                temp_dict[key] = inv_tuple
-                inverted = True
-                break
-        """
         scale_unit_list = temp_dict["denom"][1]
         scale_power = temp_dict["denom"][2]
         num_to_denom = temp_dict["num"]
