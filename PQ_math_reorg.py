@@ -10,7 +10,6 @@ from copy import deepcopy
 import unittest
 import cProfile
 
-
 class UnitError(Exception):
         pass
 
@@ -340,7 +339,6 @@ class PhysQuant(object):
         Quantity that is represented in this Class. It is hidden from the 
         Outside and its values are retrieved using unit property.
         """
-
         self._unit_dict = PhysQuant._interpret(*args, **kwargs)
 
     @property
@@ -669,32 +667,63 @@ class PhysQuant(object):
     def reduce(self):
         """ reduct cancels units in the numerator and denominator"""
         temp_denom_unit_list = list(self._unit_dict["denom"][1])
-        # First check if ohms or S in denom unit list and if so put reciprocal
-        # unit in the num unit list
-        for unit in self._unit_dict["denom"][1]:
-            print("From Denom checking", unit)
-            if unit in ("Ω", "S"):
-                print("Found ohm or S in denom")
-                temp_denom_unit_list.remove(unit)
-                if unit == "Ω":
-                    self._unit_dict["num"][1].append("S")
-                else:
-                    self._unit_dict["num"][1].append("Ω")
-        # Now cancel any units present in both the num and denom unit lists
-        self._unit_dict["denom"][1] = temp_denom_unit_list
-        print("unit dict_denom units", temp_denom_unit_list)
+        # Cancel any units present in both the num and denom unit lists
+        self._unit_dict["denom"][1] = deepcopy(temp_denom_unit_list)
         temp_num_unit_list = list(self._unit_dict["num"][1])
-        for unit in self._unit_dict["denom"][1]:
+        index_denom_unit_list = deepcopy(self._unit_dict["denom"][1])
+        for indx, unit in enumerate(index_denom_unit_list):
             cnt = temp_num_unit_list.count(unit)
             if cnt >= 1:
                 temp_denom_unit_list.remove(unit)
                 temp_num_unit_list.remove(unit)
+        # Next check if ohms and S in same unit list in which case they cancel
+        if "Ω" in temp_denom_unit_list and "S" in temp_denom_unit_list:
+                temp_denom_unit_list.remove("Ω")
+                temp_denom_unit_list.remove("S")
+        if "Ω" in temp_num_unit_list and "S" in temp_num_unit_list:
+                temp_num_unit_list.remove("Ω")
+                temp_num_unit_list.remove("S")
+        # if either ohm or S in denom unit list put reciprocal
+        # unit in the temp num unit list
+        iter_denom = deepcopy(temp_denom_unit_list)
+        for unit in iter_denom:
+            if unit in ("Ω", "S"):
+                temp_denom_unit_list.remove(unit)
+                if unit == "Ω":
+                    temp_num_unit_list.append("S")
+                else:
+                    temp_num_unit_list.append("Ω")
+        # revactor the values for the unit_dictionary keys
         numerator = [self._unit_dict["num"][0], temp_num_unit_list,
                      self._unit_dict["num"][2]]
         denominator = [self._unit_dict["denom"][0], temp_denom_unit_list,
                        self._unit_dict["denom"][2]]
-        self._unit_dict["num"] = numerator
-        self._unit_dict["denom"] = denominator
+        return_dict = {}
+        return_dict["num"] = numerator
+        return_dict["denom"] = denominator
+        self._unit_dict = return_dict
+
+    def reduce_all(self):
+        """Extends reduce method to change dictionary to use fully reduced units
+        as defined in the reduced_units dictionary"""
+        temp_dict = deepcopy(self._unit_dict)
+        temp_pq= pq(**temp_dict)
+        # create unit list copies to iterate over to ensure good behavior when
+        # deleting elements from the list
+        iter_list = deepcopy(temp_dict["num"][1])
+        denom_iter_list = deepcopy(temp_dict["denom"][1])
+        # Use multiplication of the conversion factors to change units
+        # After reduce() is run the unit will be changed
+        for indx, unit in enumerate(iter_list):
+            if unit in Converters.reduced_units.keys():
+                temp_pq = Converters.reduced_units[unit] * temp_pq
+        # for the denom the conversion factor needed to be inverted
+        for unit in denom_iter_list:
+            if unit in Converters.reduced_units.keys():
+                pq_unit_inv = Converters.reduced_units[unit].inverted()
+                temp_pq = pq_unit_inv * temp_pq
+        temp_pq.reduce()
+        self._unit_dict = temp_pq._unit_dict
 
     @staticmethod
     def add_prefix(in_scalar, unit_str):
@@ -942,11 +971,27 @@ class rnd_cell(PhysQuant):
     @property
     def cm(self):
         return self.sa * pq("1 uF/cm2")
+
+def pq(*args, **kwargs):
+    return PhysQuant(*args, **kwargs)
+
+
+class Converters(PhysQuant):
+    reduced_units = {"V": pq("1 J/V.coul"), "M": pq("1 mol/1000 M.cm.cm.cm"),
+                  "Ω": pq("1 J.sec/Ω.coul.coul"), "l": pq("1000 cm.cm.cm /l"),
+                  "S": pq("1 coul.coul/J.sec"), "A": pq("1 coul/A.sec"),
+                  "F": pq("1 coul.coul/F.J")}
+                  
+    conversion_factors = {"N": pq("6.0224e23 obj/ mol"), "R": pq("8.314 J.mol/K"),
+                          "F": pq("96500 coul/z.mol")}              
+
+
         
 class segment(PhysQuant):
     """ Creates a cylindrical cell object when given a diameter and a length
     as pq objects. Provides easy  access to volume, surface area, membrane 
-    capacitance and internal resistance.  cm can be flagged for mylenation
+    capacitance and internal resistance.  cm can be flagged for mylenation.
+    Note area of cylinder ends are not added to the surface area.
     """
     def __init__(self, myelin=False, **kwargs):
         self._l = kwargs["l"]
@@ -955,24 +1000,25 @@ class segment(PhysQuant):
         self.ra_cm = pq("100 ohm.cm")
 
     def __call__(self):
-        """ call takes the diam and converts it to a pq if it isn't already. 
-        diam can be an valid term that can be interpreted as a pq, like
-        srings, floats,integers, and other PhysQuant items.  Returns a pq
-        object for the Surface Area and the Volume"""
+        """ call uses the self.d and self.l to return pq
+        objects for the Surface Area and the Volume"""
         SA = ((pi) * pq(self._d)) * self._l
         Vol = ((pi / 4.0)* (pq(self._d))**2) * self._l
         return SA, Vol
 
     @property
     def l(self):
+        """ The cylinder length"""
         return self._l
     
     @property
     def d(self):
+        """ The cylinder diam"""
         return self._d
 
     @property
     def myelin(self):
+        """ Cm changes based on myeling."""
         return self._myelin
 
     @myelin.setter
@@ -1077,3 +1123,6 @@ if __name__ == "__main__":
     resistivity = pq("100 ohm.cm")
     myu4invert = myu4.inverted()
     print("myu4", myu4, "inverted", myu4invert)
+    myu10 = pq("1 Ohm.F")
+    myu10.reduce_all()
+    print(myu10.SI)

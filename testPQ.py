@@ -72,6 +72,15 @@ class PhysQuantTestCase(TestCase):
         gps = resistivity.inverted()
         print("gps_unitDict: ", gps._unit_dict)
         self.assertEqual(gps.SI, (1.0, "S/m"))
+    def test_PhysQuant_reduce_all(self):
+        """ Tests the full reduction of units"""
+        print("*****Begin test Reduce All*****")
+        a = pq("1e6 ohm")
+        b = pq("1e-6 F")
+        c = a * b
+        print("c dict", c.unit_dict)
+        c.reduce_all()
+        self.assertEqual(c.SI, (1.0, "sec"))
       
         
 if __name__ == "__main__":
